@@ -4,129 +4,174 @@ async function startConversion(file, isH, statusElement) {
         statusElement.scrollTop = statusElement.scrollHeight; 
     };
 
+    // --- MAPA DE BLOQUES EXTENDIDO (SCRATCH -> CATROBAT) ---
     const BLOCK_MAP = {
+        // Eventos (Events)
         "event_whenflagclicked": "WhenProgramStartBrick",
         "event_whenthisspriteclicked": "WhenTappedBrick",
         "event_whenbroadcastreceived": "BroadcastReceiverBrick",
         "event_broadcast": "BroadcastBrick",
+        "event_broadcastandwait": "BroadcastWaitBrick",
+        "event_whenkeypressed": "WhenKeyPressedBrick",
+        "event_whenbackdropswitchesto": "WhenBackgroundChangesBrick",
+        "event_whengreaterthan": "WhenConditionMetBrick",
+
+        // Movimiento (Motion)
         "motion_movesteps": "MoveNStepsBrick",
+        "motion_turnright": "TurnRightBrick",
+        "motion_turnleft": "TurnLeftBrick",
         "motion_gotoxy": "PlaceAtBrick",
+        "motion_glideto": "GlideToBrick",
+        "motion_changexby": "ChangeXByNBrick",
+        "motion_setx": "SetXBrick",
+        "motion_changeyby": "ChangeYByNBrick",
+        "motion_sety": "SetYBrick",
+        "motion_pointindirection": "PointInDirectionBrick",
+        "motion_pointtowards": "PointToBrick",
+        "motion_ifonedgebounce": "IfOnEdgeBounceBrick",
+        "motion_setrotationstyle": "SetRotationStyleBrick",
+
+        // Apariencia (Looks)
+        "looks_sayforsecs": "SayForBrick",
+        "looks_say": "SayBubbleBrick",
+        "looks_switchcostumeto": "SetLookBrick",
         "looks_nextcostume": "NextLookBrick",
+        "looks_switchbackdropto": "SetBackdropBrick",
+        "looks_nextbackdrop": "NextBackdropBrick",
+        "looks_changesizeby": "ChangeSizeByNBrick",
+        "looks_setsizeto": "SetSizeToBrick",
         "looks_show": "ShowBrick",
         "looks_hide": "HideBrick",
+        "looks_gotofrontback": "ComeToFrontBrick",
+        "looks_changeeffectby": "ChangeGraphicEffectByNBrick",
+        "looks_seteffectto": "SetGraphicEffectBrick",
+        "looks_cleargraphiceffects": "ClearGraphicEffectsBrick",
+
+        // Sonido (Sound)
+        "sound_playuntildone": "PlaySoundWaitBrick",
+        "sound_play": "PlaySoundBrick",
+        "sound_stopallsounds": "StopAllSoundsBrick",
+        "sound_changevolumeby": "ChangeVolumeByNBrick",
+        "sound_setvolumeto": "SetVolumeToBrick",
+
+        // Control
         "control_wait": "WaitBrick",
-        "control_forever": "ForeverBrick"
+        "control_repeat": "RepeatBrick",
+        "control_forever": "ForeverBrick",
+        "control_if": "IfLogicBeginBrick",
+        "control_if_else": "IfThenElseBrick",
+        "control_wait_until": "WaitUntilBrick",
+        "control_repeat_until": "RepeatUntilBrick",
+        "control_stop": "StopScriptBrick",
+        "control_start_as_clone": "WhenCloneStartedBrick",
+        "control_create_clone_of": "CloneBrick",
+        "control_delete_this_clone": "DeleteThisCloneBrick",
+
+        // Datos (Variables)
+        "data_setvariableto": "SetVariableBrick",
+        "data_changevariableby": "ChangeVariableByNBrick",
+        "data_showvariable": "ShowVariableBrick",
+        "data_hidevariable": "HideVariableBrick"
     };
 
     const XML_URL = "https://raw.githubusercontent.com/SpacesXD/Spaces-Studio/refs/heads/main/XMLBase.xml";
 
-    log("Descargando base de Spaces Studio...");
+    log("Sincronizando con Spaces Studio Engine...");
     let baseXml = "";
     try {
         const resp = await fetch(XML_URL);
         baseXml = await resp.text();
     } catch (e) {
-        log("Error cargando base.");
+        log("ERROR FATAL: Base XML no encontrada.");
         return;
     }
 
     const sb3Zip = new JSZip();
     const catZip = new JSZip();
-    const sceneName = "Escena"; // Carpeta raíz requerida por Pocket Code
+    const scene = "Escena";
 
     try {
-        const sb3Data = await sb3Zip.loadAsync(file);
-        const project = JSON.parse(await sb3Data.file("project.json").async("string"));
+        const data = await sb3Zip.loadAsync(file);
+        const project = JSON.parse(await data.file("project.json").async("string"));
 
-        log("Limpiando y preparando XML...");
-        // Preparamos el Header
-        let header = baseXml.split("<objectList")[0];
-        let footer = baseXml.split("</objectList>")[1] || "</scene></scenes></program>";
+        let finalXml = baseXml
+            .replace(/<landscapeMode>.*?<\/landscapeMode>/g, `<landscapeMode>${isH}</landscapeMode>`)
+            .replace(/<screenHeight>.*?<\/screenHeight>/g, `<screenHeight>${isH ? 720 : 1476}</screenHeight>`)
+            .replace(/<screenWidth>.*?<\/screenWidth>/g, `<screenWidth>${isH ? 1476 : 720}</screenWidth>`)
+            .replace(/<programName>.*?<\/programName>/g, `<programName>${file.name.split('.')[0]}</programName>`);
 
-        // Ajustes de pantalla
-        header = header.replace(/<landscapeMode>.*?<\/landscapeMode>/g, `<landscapeMode>${isH}</landscapeMode>`)
-                       .replace(/<screenHeight>.*?<\/screenHeight>/g, `<screenHeight>${isH ? 720 : 1476}</screenHeight>`)
-                       .replace(/<screenWidth>.*?<\/screenWidth>/g, `<screenWidth>${isH ? 1476 : 720}</screenWidth>`)
-                       .replace(/<programName>.*?<\/programName>/g, `<programName>${file.name.replace(".sb3","")}</programName>`);
-
-        let objectListContent = "";
+        let objectsXml = "";
 
         for (const target of project.targets) {
             const name = target.isStage ? "Fondo" : target.name;
-            log("Exportando: " + name);
+            log("Mapeando objeto: " + name);
 
-            objectListContent += `\n<object type="Sprite" name="${name}">`;
+            objectsXml += `\n<object type="Sprite" name="${name}">`;
             
-            // --- PROCESAR APARIENCIAS ---
-            objectListContent += `<lookList>`;
-            for (const costume of target.costumes) {
-                let fName = costume.md5ext;
-                const fileData = await sb3Data.file(fName).async("blob");
-                
-                if (fName.endsWith('.svg')) {
-                    // Convertir SVG a PNG porque Catrobat nativo a veces falla con SVGs de Scratch
-                    const svgText = await fileData.text();
-                    const pngBlob = await svgToPng(svgText, isH);
-                    fName = fName.replace(".svg", ".png");
-                    catZip.file(`${sceneName}/images/${fName}`, pngBlob);
-                } else {
-                    catZip.file(`${sceneName}/images/${fName}`, fileData);
-                }
-                objectListContent += `<look name="${costume.name}"><fileName>${fName}</fileName></look>`;
+            // Looks (Imágenes)
+            objectsXml += `<lookList>`;
+            for (const look of target.costumes) {
+                const imgData = await data.file(look.md5ext).async("blob");
+                catZip.file(`${scene}/images/${look.md5ext}`, imgData);
+                objectsXml += `<look name="${look.name}"><fileName>${look.md5ext}</fileName></look>`;
             }
-            objectListContent += `</lookList>`;
+            objectsXml += `</lookList>`;
 
-            // --- PROCESAR SONIDOS (CORREGIDO) ---
-            objectListContent += `<soundList>`;
+            // Sounds (Sonidos)
+            objectsXml += `<soundList>`;
             for (const snd of target.sounds) {
-                const sndData = await sb3Data.file(snd.md5ext).async("blob");
-                // IMPORTANTE: Los sonidos van en Escena/sounds/
-                catZip.file(`${sceneName}/sounds/${snd.md5ext}`, sndData);
-                objectListContent += `<sound><fileName>${snd.md5ext}</fileName><name>${snd.name}</name></sound>`;
-                log("  + Sonido: " + snd.name);
+                const sndData = await data.file(snd.md5ext).async("blob");
+                catZip.file(`${scene}/sounds/${snd.md5ext}`, sndData);
+                objectsXml += `<sound><fileName>${snd.md5ext}</fileName><name>${snd.name}</name></sound>`;
             }
-            objectListContent += `</soundList>`;
+            objectsXml += `</soundList>`;
 
-            // --- PROCESAR BLOQUES ---
-            objectListContent += `<scriptList>`;
+            // Scripts (Lógica de Bloques)
+            objectsXml += `<scriptList>`;
             const bks = target.blocks;
             for (const id in bks) {
                 const b = bks[id];
+                // Detectar inicio de pila de bloques
                 if (BLOCK_MAP[b.opcode] && (b.opcode.startsWith('event_when') || !b.parent)) {
-                    objectListContent += `<script type="${BLOCK_MAP[b.opcode]}"><brickList>`;
-                    let next = b.next;
-                    while(next && bks[next]) {
-                        if(BLOCK_MAP[bks[next].opcode]) {
-                            objectListContent += `<brick type="${BLOCK_MAP[bks[next].opcode]}"></brick>`;
+                    objectsXml += `<script type="${BLOCK_MAP[b.opcode]}"><brickList>`;
+                    
+                    let current = b.next;
+                    while (current && bks[current]) {
+                        const nb = bks[current];
+                        if (BLOCK_MAP[nb.opcode]) {
+                            objectsXml += `<brick type="${BLOCK_MAP[nb.opcode]}"></brick>`;
                         }
-                        next = bks[next].next;
+                        current = nb.next;
                     }
-                    objectListContent += `</brickList></script>`;
+                    objectsXml += `</brickList></script>`;
                 }
             }
-            objectListContent += `</scriptList><nfcTagList/><userVariables/><userLists/><userDefinedBrickList/></object>`;
+            objectsXml += `</scriptList><nfcTagList/><userVariables/><userLists/><userDefinedBrickList/></object>`;
         }
 
-        // Construcción final del code.xml
-        const finalXml = header + "<objectList>" + objectListContent + "</objectList>" + footer;
-        catZip.file("code.xml", finalXml);
+        // Inyección forzada en la etiqueta objectList
+        if (finalXml.includes("<objectList/>")) {
+            finalXml = finalXml.replace("<objectList/>", `<objectList>${objectsXml}</objectList>`);
+        } else {
+            finalXml = finalXml.replace(/<objectList>[\s\S]*?<\/objectList>/, `<objectList>${objectsXml}</objectList>`);
+        }
 
-        log("Generando archivo .catrobat...");
-        const content = await catZip.generateAsync({type: "blob"});
+        catZip.file("code.xml", finalXml);
         
+        const result = await catZip.generateAsync({type: "blob"});
         const link = document.createElement('a');
-        link.href = URL.createObjectURL(content);
+        link.href = URL.createObjectURL(result);
         link.download = file.name.replace(".sb3", ".catrobat");
         link.click();
-        log("¡LISTO! Revisa tu carpeta de descargas.");
+        log("¡CONVERSIÓN FINALIZADA!");
 
     } catch (err) {
         log("ERROR: " + err.message);
-        console.error(err);
     }
 }
 
 async function svgToPng(svg, isH) {
+    // Función mantenida por compatibilidad si decides usarla luego
     return new Promise((res) => {
         const img = new Image();
         const canvas = document.createElement('canvas');
@@ -140,4 +185,4 @@ async function svgToPng(svg, isH) {
         };
         img.src = url;
     });
-}
+        }
