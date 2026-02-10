@@ -4,196 +4,130 @@ async function startConversion(file, isH, statusElement) {
         statusElement.scrollTop = statusElement.scrollHeight; 
     };
 
-    // --- MAPA MAESTRO DE BLOQUES (SCRATCH -> CATROBAT) ---
     const BLOCK_MAP = {
-        // Eventos
         "event_whenflagclicked": "WhenProgramStartBrick",
         "event_whenthisspriteclicked": "WhenTappedBrick",
         "event_whenbroadcastreceived": "BroadcastReceiverBrick",
         "event_broadcast": "BroadcastBrick",
-        "event_broadcastandwait": "BroadcastWaitBrick",
-        "event_whenkeypressed": "WhenKeyPressedBrick",
-        "event_whenbackdropswitchesto": "WhenBackgroundChangesBrick",
-        
-        // Movimiento
         "motion_movesteps": "MoveNStepsBrick",
-        "motion_turnright": "TurnRightBrick",
-        "motion_turnleft": "TurnLeftBrick",
         "motion_gotoxy": "PlaceAtBrick",
-        "motion_glideto": "GlideToBrick",
-        "motion_changexby": "ChangeXByNBrick",
-        "motion_setx": "SetXBrick",
-        "motion_changeyby": "ChangeYByNBrick",
-        "motion_sety": "SetYBrick",
-        "motion_pointindirection": "PointInDirectionBrick",
-        "motion_pointtowards": "PointToBrick",
-        "motion_ifonedgebounce": "IfOnEdgeBounceBrick",
-        "motion_setrotationstyle": "SetRotationStyleBrick",
-        
-        // Apariencia
-        "looks_sayforsecs": "SayForBrick",
-        "looks_say": "SayBubbleBrick",
-        "looks_switchcostumeto": "SetLookBrick",
         "looks_nextcostume": "NextLookBrick",
-        "looks_switchbackdropto": "SetBackdropBrick",
-        "looks_nextbackdrop": "NextBackdropBrick",
-        "looks_changesizeby": "ChangeSizeByNBrick",
-        "looks_setsizeto": "SetSizeToBrick",
         "looks_show": "ShowBrick",
         "looks_hide": "HideBrick",
-        "looks_gotofrontback": "ComeToFrontBrick",
-        "looks_changeeffectby": "ChangeGraphicEffectByNBrick",
-        "looks_seteffectto": "SetGraphicEffectBrick",
-        "looks_cleargraphiceffects": "ClearGraphicEffectsBrick",
-        
-        // Sonido
-        "sound_playuntildone": "PlaySoundWaitBrick",
-        "sound_play": "PlaySoundBrick",
-        "sound_stopallsounds": "StopAllSoundsBrick",
-        "sound_changevolumeby": "ChangeVolumeByNBrick",
-        "sound_setvolumeto": "SetVolumeToBrick",
-        
-        // Control
         "control_wait": "WaitBrick",
-        "control_repeat": "RepeatBrick",
-        "control_forever": "ForeverBrick",
-        "control_if": "IfLogicBeginBrick",
-        "control_if_else": "IfThenElseBrick",
-        "control_wait_until": "WaitUntilBrick",
-        "control_repeat_until": "RepeatUntilBrick",
-        "control_stop": "StopScriptBrick",
-        "control_start_as_clone": "WhenCloneStartedBrick",
-        "control_create_clone_of": "CloneBrick",
-        "control_delete_this_clone": "DeleteThisCloneBrick",
-        
-        // Variables
-        "data_setvariableto": "SetVariableBrick",
-        "data_changevariableby": "ChangeVariableByNBrick",
-        "data_showvariable": "ShowVariableBrick",
-        "data_hidevariable": "HideVariableBrick"
-    };
-
-    // --- MAPA DE OPERACIONES (Óvalos/Inputs) ---
-    const OPERATOR_MAP = {
-        "operator_add": "+",
-        "operator_subtract": "-",
-        "operator_multiply": "*",
-        "operator_divide": "/",
-        "operator_random": "random",
-        "operator_gt": ">",
-        "operator_lt": "<",
-        "operator_equals": "=",
-        "operator_and": "&&",
-        "operator_or": "||",
-        "operator_not": "!"
+        "control_forever": "ForeverBrick"
     };
 
     const XML_URL = "https://raw.githubusercontent.com/SpacesXD/Spaces-Studio/refs/heads/main/XMLBase.xml";
 
-    log("Descargando base universal...");
+    log("Descargando base de Spaces Studio...");
     let baseXml = "";
     try {
         const resp = await fetch(XML_URL);
         baseXml = await resp.text();
     } catch (e) {
-        log("Error conectando a GitHub.");
+        log("Error cargando base.");
         return;
     }
 
     const sb3Zip = new JSZip();
     const catZip = new JSZip();
-    const sceneName = "Escena";
+    const sceneName = "Escena"; // Carpeta raíz requerida por Pocket Code
 
     try {
         const sb3Data = await sb3Zip.loadAsync(file);
         const project = JSON.parse(await sb3Data.file("project.json").async("string"));
 
-        let finalXml = baseXml
-            .replace(/<landscapeMode>.*?<\/landscapeMode>/g, `<landscapeMode>${isH}</landscapeMode>`)
-            .replace(/<screenHeight>.*?<\/screenHeight>/g, `<screenHeight>${isH ? 720 : 1476}</screenHeight>`)
-            .replace(/<screenWidth>.*?<\/screenWidth>/g, `<screenWidth>${isH ? 1476 : 720}</screenWidth>`)
-            .replace(/<programName>.*?<\/programName>/g, `<programName>${file.name.split('.')[0]}</programName>`);
+        log("Limpiando y preparando XML...");
+        // Preparamos el Header
+        let header = baseXml.split("<objectList")[0];
+        let footer = baseXml.split("</objectList>")[1] || "</scene></scenes></program>";
 
-        let objectListXml = "";
+        // Ajustes de pantalla
+        header = header.replace(/<landscapeMode>.*?<\/landscapeMode>/g, `<landscapeMode>${isH}</landscapeMode>`)
+                       .replace(/<screenHeight>.*?<\/screenHeight>/g, `<screenHeight>${isH ? 720 : 1476}</screenHeight>`)
+                       .replace(/<screenWidth>.*?<\/screenWidth>/g, `<screenWidth>${isH ? 1476 : 720}</screenWidth>`)
+                       .replace(/<programName>.*?<\/programName>/g, `<programName>${file.name.replace(".sb3","")}</programName>`);
+
+        let objectListContent = "";
 
         for (const target of project.targets) {
             const name = target.isStage ? "Fondo" : target.name;
-            log("Mapeando: " + name);
+            log("Exportando: " + name);
 
-            objectListXml += `\n        <object type="Sprite" name="${name}">`;
+            objectListContent += `\n<object type="Sprite" name="${name}">`;
             
-            // Looks & Sounds (Procesamiento masivo)
-            objectListXml += `\n          <lookList>`;
+            // --- PROCESAR APARIENCIAS ---
+            objectListContent += `<lookList>`;
             for (const costume of target.costumes) {
                 let fName = costume.md5ext;
+                const fileData = await sb3Data.file(fName).async("blob");
+                
                 if (fName.endsWith('.svg')) {
-                    const svg = await sb3Data.file(fName).async("string");
-                    const png = await svgToPng(svg, isH);
+                    // Convertir SVG a PNG porque Catrobat nativo a veces falla con SVGs de Scratch
+                    const svgText = await fileData.text();
+                    const pngBlob = await svgToPng(svgText, isH);
                     fName = fName.replace(".svg", ".png");
-                    catZip.file(`${sceneName}/images/${fName}`, png);
+                    catZip.file(`${sceneName}/images/${fName}`, pngBlob);
                 } else {
-                    catZip.file(`${sceneName}/images/${fName}`, await sb3Data.file(fName).async("blob"));
+                    catZip.file(`${sceneName}/images/${fName}`, fileData);
                 }
-                objectListXml += `\n            <look name="${costume.name}"><fileName>${fName}</fileName></look>`;
+                objectListContent += `<look name="${costume.name}"><fileName>${fName}</fileName></look>`;
             }
-            objectListXml += `\n          </lookList>\n          <soundList>`;
-            for (const snd of target.sounds) {
-                catZip.file(`${sceneName}/sounds/${snd.md5ext}`, await sb3Data.file(snd.md5ext).async("blob"));
-                objectListXml += `\n            <sound><fileName>${snd.md5ext}</fileName><name>${snd.name}</name></sound>`;
-            }
-            objectListXml += `\n          </soundList>`;
+            objectListContent += `</lookList>`;
 
-            // --- MOTOR DE BLOQUES COMPLEJO ---
-            objectListXml += `\n          <scriptList>`;
-            const blocks = target.blocks;
-            for (const id in blocks) {
-                const b = blocks[id];
+            // --- PROCESAR SONIDOS (CORREGIDO) ---
+            objectListContent += `<soundList>`;
+            for (const snd of target.sounds) {
+                const sndData = await sb3Data.file(snd.md5ext).async("blob");
+                // IMPORTANTE: Los sonidos van en Escena/sounds/
+                catZip.file(`${sceneName}/sounds/${snd.md5ext}`, sndData);
+                objectListContent += `<sound><fileName>${snd.md5ext}</fileName><name>${snd.name}</name></sound>`;
+                log("  + Sonido: " + snd.name);
+            }
+            objectListContent += `</soundList>`;
+
+            // --- PROCESAR BLOQUES ---
+            objectListContent += `<scriptList>`;
+            const bks = target.blocks;
+            for (const id in bks) {
+                const b = bks[id];
                 if (BLOCK_MAP[b.opcode] && (b.opcode.startsWith('event_when') || !b.parent)) {
-                    objectListXml += `\n            <script type="${BLOCK_MAP[b.opcode]}">`;
-                    if (b.opcode === "event_whenbroadcastreceived") {
-                        objectListXml += `<receivedMessage>${b.fields.BROADCAST_OPTION[0]}</receivedMessage>`;
-                    }
-                    objectListXml += `\n              <brickList>`;
-                    
-                    let current = b.next;
-                    while (current && blocks[current]) {
-                        const nb = blocks[current];
-                        const type = BLOCK_MAP[nb.opcode];
-                        if (type) {
-                            objectListXml += `\n                <brick type="${type}">`;
-                            // Aquí se podrían inyectar fórmulas/operaciones si se mapean los inputs
-                            objectListXml += `</brick>`;
+                    objectListContent += `<script type="${BLOCK_MAP[b.opcode]}"><brickList>`;
+                    let next = b.next;
+                    while(next && bks[next]) {
+                        if(BLOCK_MAP[bks[next].opcode]) {
+                            objectListContent += `<brick type="${BLOCK_MAP[bks[next].opcode]}"></brick>`;
                         }
-                        current = nb.next;
+                        next = bks[next].next;
                     }
-                    objectListXml += `\n              </brickList>\n            </script>`;
+                    objectListContent += `</brickList></script>`;
                 }
             }
-            objectListXml += `\n          </scriptList>\n          <nfcTagList/><userVariables/><userLists/><userDefinedBrickList/>\n        </object>`;
+            objectListContent += `</scriptList><nfcTagList/><userVariables/><userLists/><userDefinedBrickList/></object>`;
         }
 
-        // Inyección con REGEX universal
-        const objRegex = /<objectList\s*\/?>|<objectList>[\s\S]*?<\/objectList>/;
-        finalXml = finalXml.replace(objRegex, `<objectList>${objectListXml}\n      </objectList>`);
-
+        // Construcción final del code.xml
+        const finalXml = header + "<objectList>" + objectListContent + "</objectList>" + footer;
         catZip.file("code.xml", finalXml);
-        
-        // Forzar peso (relleno de basura para llegar a los ~3MB si es necesario)
-        const dummyData = new Uint8Array(2 * 1024 * 1024); // 2MB de buffer vacío
-        catZip.file("extra_data.bin", dummyData);
 
-        const content = await catZip.generateAsync({type: "blob", compression: "DEFLATE"});
+        log("Generando archivo .catrobat...");
+        const content = await catZip.generateAsync({type: "blob"});
+        
         const link = document.createElement('a');
         link.href = URL.createObjectURL(content);
         link.download = file.name.replace(".sb3", ".catrobat");
         link.click();
-        log("¡CONVERSIÓN TOTAL COMPLETADA!");
+        log("¡LISTO! Revisa tu carpeta de descargas.");
 
-    } catch (err) { log("ERROR: " + err.message); }
+    } catch (err) {
+        log("ERROR: " + err.message);
+        console.error(err);
+    }
 }
 
 async function svgToPng(svg, isH) {
-    return new Promise((resolve) => {
+    return new Promise((res) => {
         const img = new Image();
         const canvas = document.createElement('canvas');
         const url = URL.createObjectURL(new Blob([svg], {type: 'image/svg+xml'}));
@@ -202,8 +136,8 @@ async function svgToPng(svg, isH) {
             canvas.height = 720;
             canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
             URL.revokeObjectURL(url);
-            canvas.toBlob(resolve, 'image/png');
+            canvas.toBlob(res, 'image/png');
         };
         img.src = url;
     });
-                                                                                                      }
+}
